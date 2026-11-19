@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>宴会の仕込み量・発注締切 計算</title>
+<style>
+  :root {
+    --bg: #faf7f2;
+    --card: #ffffff;
+    --ink: #2b2620;
+    --muted: #7a7065;
+    --line: #e6dfd3;
+    --accent: #b5452b;
+    --accent-soft: #fbe9e3;
+    --ok: #3d7a4f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1d1a17; --card: #2a2622; --ink: #f1ebe2; --muted: #a79c8e;
+      --line: #3d3731; --accent: #e07a5f; --accent-soft: #3a2a25; --ok: #7fbf8e;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1d1a17; --card: #2a2622; --ink: #f1ebe2; --muted: #a79c8e;
+    --line: #3d3731; --accent: #e07a5f; --accent-soft: #3a2a25; --ok: #7fbf8e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Hiragino Sans", "Yu Gothic", "Noto Sans JP", system-ui, sans-serif;
+    line-height: 1.6;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 680px; margin: 0 auto; padding: 16px; }
+  header h1 { font-size: 1.3rem; margin: 8px 0 4px; }
+  header p { margin: 0 0 12px; color: var(--muted); font-size: .9rem; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+  h2 { font-size: 1rem; margin: 0 0 12px; }
+  label { display: block; font-size: .9rem; margin-bottom: 6px; color: var(--muted); }
+  .row { display: grid; gap: 12px; grid-template-columns: 1fr; }
+  @media (min-width: 520px) { .row.two { grid-template-columns: 1fr 1fr; } }
+
+  .people-value {
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px;
+  }
+  .people-value output { font-size: 2rem; font-weight: 700; color: var(--accent); }
+  input[type="number"], input[type="date"], input[type="time"], select {
+    width: 100%;
+    font: inherit;
+    font-size: 1rem;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--card);
+    color: var(--ink);
+  }
+  input[type="range"] { width: 100%; accent-color: var(--accent); height: 28px; }
+
+  .courses { display: grid; gap: 10px; grid-template-columns: 1fr; }
+  @media (min-width: 520px) { .courses { grid-template-columns: repeat(3, 1fr); } }
+  .course input { position: absolute; opacity: 0; pointer-events: none; }
+  .course span {
+    display: block;
+    border: 2px solid var(--line);
+    border-radius: 12px;
+    padding: 12px;
+    cursor: pointer;
+    min-height: 74px;
+    transition: border-color .15s, background .15s;
+  }
+  .course strong { display: block; font-size: 1rem; }
+  .course small { color: var(--muted); font-size: .8rem; }
+  .course input:checked + span { border-color: var(--accent); background: var(--accent-soft); }
+  .course input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  .toggle-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    position: relative;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 8px 14px;
+    cursor: pointer;
+    font-size: .9rem;
+    user-select: none;
+  }
+  .chip input { position: absolute; opacity: 0; pointer-events: none; }
+  .chip:has(input:checked) { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .chip:has(input:focus-visible) { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  .deadline {
+    border-radius: 12px;
+    padding: 14px;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+  }
+  .deadline .big { font-size: 1.25rem; font-weight: 700; margin: 4px 0; }
+  .deadline .status { font-size: .9rem; }
+  .deadline.past { background: var(--card); border-color: var(--line); }
+  .deadline.past .status { color: var(--muted); }
+
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  button {
+    font: inherit;
+    font-size: .95rem;
+    padding: 10px 16px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink);
+    cursor: pointer;
+    min-height: 44px;
+  }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+  th, td { text-align: left; padding: 10px 6px; border-bottom: 1px solid var(--line); }
+  th { font-size: .8rem; color: var(--muted); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .cat { font-size: .75rem; color: var(--muted); }
+  .total { font-weight: 700; }
+  .note { font-size: .8rem; color: var(--muted); margin: 10px 0 0; }
+  .hidden { display: none; }
+  .vendor-list { margin: 0; padding-left: 1.2em; font-size: .92rem; }
+  .vendor-list li { margin-bottom: 4px; }
+  .sub { font-size: .8rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>宴会の仕込み量・発注締切 計算</h1>
+    <p>人数とコースを選ぶと、食材ごとの仕込み量の目安と卸への発注締切が分かります。</p>
+  </header>
+
+  <section class="card" aria-labelledby="h-people">
+    <h2 id="h-people">1. 人数</h2>
+    <div class="people-value">
+      <output id="peopleOut" for="people">20</output><span>名</span>
+    </div>
+    <input type="range" id="people" min="1" max="100" step="1" value="20" aria-label="人数">
+    <div class="row two" style="margin-top:12px">
+      <div>
+        <label for="peopleNum">直接入力（1〜200名）</label>
+        <input type="number" id="peopleNum" min="1" max="200" step="1" value="20" inputmode="numeric">
+      </div>
+      <div>
+        <label for="loss">仕込みの余裕（ロス・予備）</label>
+        <select id="loss">
+          <option value="0">0%（ぴったり）</option>
+          <option value="0.05">5%</option>
+          <option value="0.10" selected>10%（標準）</option>
+          <option value="0.15">15%</option>
+          <option value="0.20">20%</option>
+        </select>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="h-course">
+    <h2 id="h-course">2. コース</h2>
+    <div class="courses" role="radiogroup" aria-label="コース">
+      <label class="course">
+        <input type="radio" name="course" value="wa" checked>
+        <span><strong>和食コース</strong><small>刺身・天ぷら・煮物・ご飯</small></span>
+      </label>
+      <label class="course">
+        <input type="radio" name="course" value="yo">
+        <span><strong>洋食コース</strong><small>前菜・ポワソン・肉料理</small></span>
+      </label>
+      <label class="course">
+        <input type="radio" name="course" value="ch">
+        <span><strong>中華コース</strong><small>前菜・炒め物・点心・スープ</small></span>
+      </label>
+    </div>
+    <div style="margin-top:12px">
+      <label>追加する料理（任意）</label>
+      <div class="toggle-row">
+        <label class="chip"><input type="checkbox" id="addDessert"> デザート</label>
+        <label class="chip"><input type="checkbox" id="addDrink"> 乾杯の一杯（飲み物）</label>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="h-prep">
+    <h2 id="h-prep">3. 仕込み量の目安</h2>
+    <div class="sub" id="prepSummary" style="margin-bottom:8px"></div>
+    <div style="overflow-x:auto">
+      <table aria-describedby="prepSummary">
+        <thead>
+          <tr><th>食材</th><th class="num">1人あたり</th><th class="num">仕込み量</th><th>卸の区分</th></tr>
+        </thead>
+        <tbody id="prepBody"></tbody>
+        <tfoot>
+          <tr><td class="total" colspan="2">主な仕込み合計（目安）</td><td class="num total" id="prepTotal"></td><td></td></tr>
+        </tfoot>
+      </table>
+    </div>
+    <p class="note">※ 食材の分量はサンプルの目安です。店のレシピ・歩留まりに合わせて表の数値を書き換えて使ってください。</p>
+  </section>
+
+  <section class="card" aria-labelledby="h-order">
+    <h2 id="h-order">4. 卸への発注締切</h2>
+    <div class="row two">
+      <div>
+        <label for="eventDate">宴会の日</label>
+        <input type="date" id="eventDate">
+      </div>
+      <div>
+        <label for="leadDays">卸の締切（宴会の何日前）</label>
+        <select id="leadDays">
+          <option value="1">1日前</option>
+          <option value="2" selected>2日前</option>
+          <option value="3">3日前</option>
+          <option value="4">4日前</option>
+        </select>
+      </div>
+    </div>
+    <div class="row two" style="margin-top:12px">
+      <div>
+        <label for="cutoffTime">締切の時刻</label>
+        <input type="time" id="cutoffTime" value="15:00">
+      </div>
+      <div>
+        <label for="vendor">卸の名前（任意・メモ用）</label>
+        <input type="text" id="vendor" placeholder="例：〇〇青果" style="width:100%;font:inherit;font-size:1rem;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink)">
+      </div>
+    </div>
+    <div class="deadline" id="deadlineBox" style="margin-top:14px" aria-live="polite">
+      <div class="sub">発注の締切</div>
+      <div class="big" id="deadlineText">宴会の日を入力してください</div>
+      <div class="status" id="deadlineStatus"></div>
+    </div>
+    <div style="margin-top:14px">
+      <div class="sub" style="margin-bottom:6px">卸別の発注メモ（食材の区分ごとにまとめました）</div>
+      <ul class="vendor-list" id="vendorList"></ul>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="btn-row">
+      <button type="button" class="primary" id="copyBtn">仕込み表をコピー</button>
+      <button type="button" id="resetBtn">人数・設定を初期値に戻す</button>
+    </div>
+    <p class="note" id="copyMsg" role="status"></p>
+  </section>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // 1人あたりの食材量（グラム）。コース別・追加料理別のサンプル値。
+  // 区分は卸ごとのまとめ用です。
+  const ITEMS = {
+    wa: [
+      { name: "鮪（赤身）",   g: 40, cat: "鮮魚" },
+      { name: "鯛",           g: 30, cat: "鮮魚" },
+      { name: "海老（天ぷら）", g: 30, cat: "鮮魚" },
+      { name: "鶏もも肉",     g: 60, cat: "精肉" },
+      { name: "野菜（天ぷら・付け合わせ）", g: 80, cat: "青果" },
+      { name: "豆腐",         g: 40, cat: "加工" },
+      { name: "米",           g: 80, cat: "米・乾物" }
+    ],
+    yo: [
+      { name: "牛ヒレ肉",     g: 80, cat: "精肉" },
+      { name: "白身魚（ポワソン）", g: 60, cat: "鮮魚" },
+      { name: "季節野菜",     g: 90, cat: "青果" },
+      { name: "生ハム・前菜", g: 25, cat: "加工" },
+      { name: "パン",         g: 50, cat: "加工" },
+      { name: "バター・乳製品", g: 15, cat: "乳製品" }
+    ],
+    ch: [
+      { name: "豚肩ロース",   g: 60, cat: "精肉" },
+      { name: "海老（炒め）", g: 40, cat: "鮮魚" },
+      { name: "鶏肉（点心）", g: 40, cat: "精肉" },
+      { name: "青菜・もやし", g: 90, cat: "青果" },
+      { name: "干し貝柱・乾物", g: 5,  cat: "米・乾物" },
+      { name: "米（炒飯）",   g: 60, cat: "米・乾物" }
+    ]
+  };
+  const DESSERT = [
+    { name: "季節のフルーツ", g: 60, cat: "青果" },
+    { name: "乳製品（デザート用）", g: 30, cat: "乳製品" }
+  ];
+  const DRINK = [
+    { name: "乾杯用ドリンク（ml換算で1杯分）", g: 0, cat: "飲料", unit: "杯", per: 1 }
+  ];
+  const COURSE_NAME = { wa: "和食コース", yo: "洋食コース", ch: "中華コース" };
+  const WEEK = ["日", "月", "火", "水", "木", "金", "土"];
+
+  const $ = (id) => document.getElementById(id);
+  const fmtKg = (g) => (g / 1000).toFixed(2).replace(/\.?0+$/, "") + " kg";
+
+  function currentCourse() {
+    const r = document.querySelector('input[name="course"]:checked');
+    return r ? r.value : "wa";
+  }
+
+  function getPeople() {
+    const n = parseInt($("peopleNum").value, 10);
+    if (!Number.isFinite(n) || n < 1) return 1;
+    return Math.min(n, 200);
+  }
+
+  function setPeople(n) {
+    n = Math.max(1, Math.min(200, n | 0));
+    $("peopleNum").value = n;
+    $("people").value = Math.min(n, 100);
+    $("peopleOut").textContent = n;
+    render();
+  }
+
+  function renderPrep() {
+    const people = getPeople();
+    const loss = parseFloat($("loss").value) || 0;
+    const course = currentCourse();
+    let rows = ITEMS[course].slice();
+    if ($("addDessert").checked) rows = rows.concat(DESSERT);
+    if ($("addDrink").checked) rows = rows.concat(DRINK);
+
+    let total = 0;
+    const body = $("prepBody");
+    body.innerHTML = "";
+    rows.forEach((it) => {
+      const base = it.g * people;
+      const withLoss = base * (1 + loss);
+      if (it.unit) {
+        const cnt = Math.ceil(people * (1 + loss));
+        const tr = document.createElement("tr");
+        tr.innerHTML =
+          `<td>${it.name}<div class="cat">（${it.cat}）</div></td>` +
+          `<td class="num">1杯</td>` +
+          `<td class="num">${cnt}${it.unit}</td>` +
+          `<td>${it.cat}</td>`;
+        body.appendChild(tr);
+        return;
+      }
+      total += withLoss;
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        `<td>${it.name}</td>` +
+        `<td class="num">${it.g} g</td>` +
+        `<td class="num">${fmtKg(Math.ceil(withLoss / 10) * 10)}</td>` +
+        `<td>${it.cat}</td>`;
+      body.appendChild(tr);
+    });
+
+    $("prepTotal").textContent = fmtKg(Math.ceil(total / 10) * 10);
+    $("prepSummary").textContent =
+      `${COURSE_NAME[course]}・${people}名・ロス ${Math.round(loss * 100)}% 込み`;
+    return { rows, people, loss };
+  }
+
+  function renderVendors(rows, people, loss) {
+    const groups = {};
+    rows.forEach((it) => {
+      if (it.unit) return;
+      const g = (groups[it.cat] = groups[it.cat] || []);
+      g.push(it.name);
+    });
+    const list = $("vendorList");
+    list.innerHTML = "";
+    const vendor = $("vendor").value.trim();
+    Object.keys(groups).forEach((cat) => {
+      const li = document.createElement("li");
+      li.textContent = `${cat}：${groups[cat].join("、")}` + (vendor ? `（${vendor}へ）` : "");
+      list.appendChild(li);
+    });
+    if (!list.children.length) {
+      const li = document.createElement("li");
+      li.textContent = "食材がありません";
+      list.appendChild(li);
+    }
+  }
+
+  function renderDeadline() {
+    const box = $("deadlineBox");
+    const dateStr = $("eventDate").value;
+    if (!dateStr) {
+      $("deadlineText").textContent = "宴会の日を入力してください";
+      $("deadlineStatus").textContent = "";
+      box.classList.remove("past");
+      return;
+    }
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const time = ($("cutoffTime").value || "15:00").split(":").map(Number);
+    const lead = parseInt($("leadDays").value, 10) || 2;
+    const cutoff = new Date(y, m - 1, d - lead, time[0] || 0, time[1] || 0);
+
+    const label = `${cutoff.getMonth() + 1}月${cutoff.getDate()}日（${WEEK[cutoff.getDay()]}）` +
+      ` ${String(cutoff.getHours()).padStart(2, "0")}:${String(cutoff.getMinutes()).padStart(2, "0")} まで`;
+    $("deadlineText").textContent = label;
+
+    const now = new Date();
+    const diffMin = Math.round((cutoff - now) / 60000);
+    box.classList.toggle("past", diffMin < 0);
+    if (diffMin < 0) {
+      $("deadlineStatus").textContent = "⚠ 締切を過ぎています。卸に直接連絡してください。";
+    } else if (diffMin < 60 * 24) {
+      $("deadlineStatus").textContent = `あと ${Math.floor(diffMin / 60)} 時間 ${diffMin % 60} 分です。`;
+    } else {
+      const days = Math.floor(diffMin / (60 * 24));
+      $("deadlineStatus").textContent = `あと約 ${days} 日です。`;
+    }
+  }
+
+  function render() {
+    const { rows, people, loss } = renderPrep();
+    renderVendors(rows, people, loss);
+    renderDeadline();
+  }
+
+  // イベント
+  $("people").addEventListener("input", (e) => setPeople(parseInt(e.target.value, 10)));
+  $("peopleNum").addEventListener("input", (e) => {
+    const n = parseInt(e.target.value, 10);
+    if (Number.isFinite(n) && n >= 1) {
+      $("people").value = Math.min(n, 100);
+      $("peopleOut").textContent = Math.min(n, 200);
+    }
+    render();
+  });
+  $("peopleNum").addEventListener("change", () => setPeople(getPeople()));
+  ["loss", "cutoffTime", "leadDays", "eventDate", "vendor"].forEach((id) =>
+    $(id).addEventListener("input", render)
+  );
+  document.querySelectorAll('input[name="course"], #addDessert, #addDrink')
+    .forEach((el) => el.addEventListener("change", render));
+
+  $("resetBtn").addEventListener("click", () => {
+    setPeople(20);
+    $("loss").value = "0.10";
+    document.querySelector('input[name="course"][value="wa"]').checked = true;
+    $("addDessert").checked = false;
+    $("addDrink").checked = false;
+    $("cutoffTime").value = "15:00";
+    $("leadDays").value = "2";
+    render();
+  });
+
+  $("copyBtn").addEventListener("click", async () => {
+    const lines = [];
+    lines.push(`【仕込み表】${$("prepSummary").textContent}`);
+    document.querySelectorAll("#prepBody tr").forEach((tr) => {
+      const c = tr.children;
+      lines.push(`${c[0].textContent.replace(/（.*）$/, "")}\t${c[1].textContent}\t${c[2].textContent}`);
+    });
+    lines.push(`合計（目安）\t\t${$("prepTotal").textContent}`);
+    lines.push(`発注締切：${$("deadlineText").textContent}`);
+    const text = lines.join("\n");
+    const msg = $("copyMsg");
+    try {
+      await navigator.clipboard.writeText(text);
+      msg.textContent = "コピーしました。";
+    } catch (err) {
+      msg.textContent = "コピーできませんでした。表を長押しして手動でコピーしてください。";
+    }
+  });
+
+  // 初期表示：宴会の日は今日から10日後
+  try {
+    const t = new Date();
+    t.setDate(t.getDate() + 10);
+    const iso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+    $("eventDate").value = iso;
+  } catch (e) { /* 入力できれば十分 */ }
+
+  render();
+})();
+</script>
+</body>
+</html>
